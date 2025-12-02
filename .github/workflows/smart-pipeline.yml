@@ -1,14 +1,39 @@
-name: Smart Task Manager CI/CD
+name: Smart CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop, feature/* ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
 
 env:
-  DOTNET_VERSION: '8.0.x'
+  DOTNET_VERSION: 8.0.x
 
+jobs:
+  # 1. Определяем, какие файлы изменились
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.changes.outputs.src }}
+      tests: ${{ steps.changes.outputs.tests }}
+      workflow: ${{ steps.changes.outputs.workflow }}
+      is-main: ${{ github.ref == 'refs/heads/main' }}
+      is-develop: ${{ github.ref == 'refs/heads/develop' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect changed files
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'src/**'
+            tests:
+              - 'tests/**'
+            workflow:
+              - '.github/workflows/**'
+
+  # 2. Сборка проекта
   build:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.src == 'true' || needs.detect-changes.outputs.tests == 'true' }}
@@ -19,14 +44,16 @@ env:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('**/packages.lock.json') }}-${{ hashFiles('**/*.csproj') }}
-          restore-keys: nuget-
+          restore-keys: |
+            nuget-${{ hashFiles('**/packages.lock.json') }}
+            nuget-
 
       - name: Restore dependencies
         run: dotnet restore
@@ -40,28 +67,34 @@ env:
         with:
           name: SmartTaskManager-${{ github.ref_name }}
           path: src/SmartTaskManager/bin/Release/net8.0/
+
+  # 3. Тесты на трёх ОС (матрица)
   test:
     needs: [detect-changes, build]
     if: ${{ needs.detect-changes.outputs.tests == 'true' || needs.detect-changes.outputs.src == 'true' }}
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-      fail-fast: false
-    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: Cache NuGet
+
+      - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
-      - name: Run tests
-        run: dotnet test --no-build -c Release
-# trigger matrix
- 
- 
+          key: nuget-${{ hashFiles('**/packages.lock.json') }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ hashFiles('**/packages.lock.json') }}
+            nuget-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Test
+        run: dotnet test --no-restore --verbosity normal
