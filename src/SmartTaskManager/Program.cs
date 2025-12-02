@@ -19,3 +19,4 @@ result.PrintReport();
 
 taskService.SaveTasksToFile("tasks.json");
 Console.WriteLine("Приложение Smart Task Manager запущено успешно!");
+// trigger matrix
