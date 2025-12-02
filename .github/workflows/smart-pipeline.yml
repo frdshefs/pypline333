@@ -9,53 +9,33 @@ on:
 env:
   DOTNET_VERSION: '8.0.x'
 
-jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      src: ${{ steps.changes.outputs.src }}
-      tests: ${{ steps.changes.outputs.tests }}
-      is-main: ${{ github.ref == 'refs/heads/main' }}
-      is-develop: ${{ github.ref == 'refs/heads/develop' }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Detect changes
-        id: changes
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > changes.txt
-          else
-            git diff --name-only HEAD~1 HEAD > changes.txt 2>/dev/null || true
-          fi
-          SRC=$(grep -c "^src/" changes.txt || echo 0)
-          TESTS=$(grep -c "^tests/" changes.txt || echo 0)
-          echo "src=$([[ $SRC -gt 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-          echo "tests=$([[ $TESTS -gt 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-
-    build:
+  build:
     needs: detect-changes
-    if: ${{ needs.detect-changes.outputs.src == 'true' || github.event_name == 'pull_request' }}
+    if: ${{ needs.detect-changes.outputs.src == 'true' || needs.detect-changes.outputs.tests == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-version: 8.0.x
+
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ hashFiles('**/packages.lock.json') }}
+          key: nuget-${{ hashFiles('**/packages.lock.json') }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-
+
       - name: Restore dependencies
         run: dotnet restore
+
       - name: Build
         run: dotnet build -c Release --no-restore
-      - name: Upload artifact (only main/develop)
-        if: ${{ needs.detect-changes.outputs.is-main == 'true' || needs.detect-changes.outputs.is-develop == 'true' }}
+
+      - name: Upload artifact (only on main or develop)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
         uses: actions/upload-artifact@v4
         with:
           name: SmartTaskManager-${{ github.ref_name }}
