@@ -34,7 +34,7 @@ jobs:
           echo "src=$([[ $SRC -gt 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
           echo "tests=$([[ $TESTS -gt 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
 
-  build:
+    build:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.src == 'true' || github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
@@ -44,21 +44,22 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: Cache NuGet
+      - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('**/packages.lock.json') }}
           restore-keys: nuget-
+      - name: Restore dependencies
+        run: dotnet restore
       - name: Build
         run: dotnet build -c Release --no-restore
-      - name: Upload artifact (main/develop only)
+      - name: Upload artifact (only main/develop)
         if: ${{ needs.detect-changes.outputs.is-main == 'true' || needs.detect-changes.outputs.is-develop == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: SmartTaskManager-${{ github.ref_name }}
           path: src/SmartTaskManager/bin/Release/net8.0/
-
   test:
     needs: [detect-changes, build]
     if: ${{ needs.detect-changes.outputs.tests == 'true' || needs.detect-changes.outputs.src == 'true' }}
