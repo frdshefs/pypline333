@@ -81,3 +81,4 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
       - name: Run tests
         run: dotnet test --no-build -c Release
+# trigger matrix
