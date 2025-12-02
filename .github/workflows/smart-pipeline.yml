@@ -1,0 +1,83 @@
+name: Smart Task Manager CI/CD
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.changes.outputs.src }}
+      tests: ${{ steps.changes.outputs.tests }}
+      is-main: ${{ github.ref == 'refs/heads/main' }}
+      is-develop: ${{ github.ref == 'refs/heads/develop' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changes
+        id: changes
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > changes.txt
+          else
+            git diff --name-only HEAD~1 HEAD > changes.txt 2>/dev/null || true
+          fi
+          SRC=$(grep -c "^src/" changes.txt || echo 0)
+          TESTS=$(grep -c "^tests/" changes.txt || echo 0)
+          echo "src=$([[ $SRC -gt 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "tests=$([[ $TESTS -gt 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+
+  build:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.src == 'true' || github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: nuget-
+      - name: Build
+        run: dotnet build -c Release --no-restore
+      - name: Upload artifact (main/develop only)
+        if: ${{ needs.detect-changes.outputs.is-main == 'true' || needs.detect-changes.outputs.is-develop == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartTaskManager-${{ github.ref_name }}
+          path: src/SmartTaskManager/bin/Release/net8.0/
+
+  test:
+    needs: [detect-changes, build]
+    if: ${{ needs.detect-changes.outputs.tests == 'true' || needs.detect-changes.outputs.src == 'true' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+    name: Test on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/packages.lock.json') }}
+      - name: Run tests
+        run: dotnet test --no-build -c Release
